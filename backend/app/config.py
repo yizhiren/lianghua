@@ -32,6 +32,7 @@ class Settings:
     backfill_batch_size: int = _int("BACKFILL_BATCH_SIZE", 100)
     market_history_years: int = max(10, min(30, _int("MARKET_HISTORY_YEARS", 15)))
     market_backfill_retries: int = max(1, min(6, _int("MARKET_BACKFILL_RETRIES", 3)))
+    backfill_max_concurrency: int = max(1, min(8, _int("BACKFILL_MAX_CONCURRENCY", 3)))
     ai_base_url: str = os.getenv("AI_BASE_URL", "").rstrip("/")
     ai_model: str = os.getenv("AI_MODEL", "")
     ai_api_key: str = os.getenv("AI_API_KEY", "")

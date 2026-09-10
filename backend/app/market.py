@@ -40,6 +40,9 @@ class MarketService:
         self._batch_a_provider: BaoStockProvider | None = None
         self._batch_hk_provider: AkshareProvider | None = None
         self._backfill_lock = threading.Lock()
+        # Market refresh and history backfill both write the same SQLite file.
+        # Serialize maintenance work so their CPU and write bursts do not overlap.
+        self._maintenance_lock = threading.RLock()
 
     def _provider(self) -> AkshareProvider:
         if settings.market_data_mode != "akshare":
@@ -52,6 +55,10 @@ class MarketService:
         return (date.today() - timedelta(days=days)).isoformat()
 
     def sync_reference_universe(self) -> dict:
+        with self._maintenance_lock:
+            return self._sync_reference_universe_unlocked()
+
+    def _sync_reference_universe_unlocked(self) -> dict:
         """Import current and delisted A-share master data from BaoStock."""
         started = time.monotonic()
         with BaoStockProvider() as provider:
@@ -103,6 +110,10 @@ class MarketService:
         )
 
     def sync_universe_and_quotes(self) -> dict:
+        with self._maintenance_lock:
+            return self._sync_universe_and_quotes_unlocked()
+
+    def _sync_universe_and_quotes_unlocked(self) -> dict:
         started = time.monotonic()
         logger.info("Market universe sync started", extra={"event": "market_sync_started"})
         provider = self._provider()
@@ -378,8 +389,9 @@ class MarketService:
         return len(bars)
 
     def backfill_next_batch(self, limit: int | None = None) -> dict:
-        with self._backfill_lock:
-            return self._backfill_next_batch(limit)
+        with self._maintenance_lock:
+            with self._backfill_lock:
+                return self._backfill_next_batch(limit)
 
     def _backfill_next_batch(self, limit: int | None = None) -> dict:
         if settings.market_data_mode != "akshare":
@@ -445,7 +457,9 @@ class MarketService:
                 # history is independent HTTP I/O per code; bounded concurrency
                 # turns a multi-hour refresh into minutes without overwhelming
                 # either the public source or SQLite's serialized writer.
-                with ThreadPoolExecutor(max_workers=min(8, max(1, len(hk_batch)))) as executor:
+                with ThreadPoolExecutor(
+                    max_workers=min(settings.backfill_max_concurrency, max(1, len(hk_batch)))
+                ) as executor:
                     hk_futures = {
                         executor.submit(self.backfill_security, security["id"], False): security
                         for security in hk_batch
