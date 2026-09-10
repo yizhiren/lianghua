@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+data/
+.env
+.env.local
+node_modules/
+.next/
+dist/
+.wrangler/
+.runtime/
